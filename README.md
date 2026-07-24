@@ -12,10 +12,10 @@ Tampermonkey script to automate making your FFXIV Lodestone character profiles p
 # Additional info
 
 Works by going through each character in the lodestone character screen.
-finds currently selected character and opens the next or 1st if none are selected (✓ icon).
-if the character was never opened, the privacy settings page will open, in which case it sets it all to private, checks the box, saves and confirms.
-if the character has previously been opened and settings will not come up, goes to settings first.
-once done, goes back to character list and repeats.
-stops when reached the end of the list.
+- Finds currently selected character and opens the next or 1st if none are selected (✓ icon).
+- If the character was never opened, the privacy settings page will open, in which case it sets it all to private, checks the box, saves and confirms.
+- If the character has previously been opened and settings will not come up, goes to settings first.
+- Once done, goes back to character list and repeats.
+- Stops when reached the end of the list.
 
 Should work on any region.
