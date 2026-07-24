@@ -17,3 +17,5 @@ if the character was never opened, the privacy settings page will open, in which
 if the character has previously been opened and settings will not come up, goes to settings first.
 once done, goes back to character list and repeats.
 stops when reached the end of the list.
+
+Should work on any region.
