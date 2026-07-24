@@ -1,0 +1,218 @@
+// ==UserScript==
+// @name         Lodestone: Privatise All Characters
+// @namespace    lodestone
+// @version      11.0
+// @description  Walk the character list top to bottom, setting each profile to private
+// @match        https://*.finalfantasyxiv.com/lodestone/*
+// @grant        GM_registerMenuCommand
+// @run-at       document-idle
+// @noframes
+// ==/UserScript==
+
+(function () {
+  'use strict';
+  if (window.__ls_privatiser) return;
+  window.__ls_privatiser = true;
+
+  const SELECT_URL   = 'https://' + location.host + '/lodestone/account/select_character/';
+  const SETTINGS_URL = 'https://' + location.host + '/lodestone/my/setting/account/';
+
+  const TAB     = 'ul.js__account__tab_public li[data-value="0"]';
+  const CONFIRM = '#privacy_confirm';
+  const SAVE    = 'input.private__save';
+  const YES     = '.js__overlay .js__overlay_yes';
+  const CHARS   = 'ul.account-character a.bt_character_login[data-character_id]';
+
+  const RUNNING = 'ls_running';
+  const CURRENT = 'ls_do_current';   // process the active character before advancing
+  const STEPS   = 'ls_steps';        // page loads since the last sign of progress
+  const LASTIDX = 'ls_lastidx';      // last selected index seen on the list
+  const PICKED  = 'ls_picked';       // we just clicked a character
+  const TABTRY  = 'ls_tabtry';       // attempts to reach the private panel
+
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const stop  = msg => { sessionStorage.removeItem(RUNNING); console.log('[LS] STOP:', msg); };
+  const go    = url => { location.href = url; };
+  const progress = () => sessionStorage.setItem(STEPS, '0');
+
+  function shown(el) {
+    if (!el) return null;
+    for (let n = el; n && n.nodeType === 1; n = n.parentElement) {
+      const s = getComputedStyle(n);
+      if (s.display === 'none' || s.visibility === 'hidden' || parseFloat(s.opacity) === 0) return null;
+    }
+    return el;
+  }
+
+  function waitFor(test, timeout = 8000, label = '') {
+    return new Promise((res, rej) => {
+      const t0 = Date.now();
+      (function poll() {
+        const el = test();
+        if (el) return res(el);
+        if (Date.now() - t0 > timeout) return rej(new Error('timeout: ' + label));
+        setTimeout(poll, 150);
+      })();
+    });
+  }
+
+  const pageReady = () => new Promise(res => {
+    if (document.readyState === 'complete') return res();
+    window.addEventListener('load', res, { once: true });
+  });
+
+  const isSettingsPage = () => !!document.querySelector(TAB);
+  const isListPage     = () => !!document.querySelector(CHARS);
+  const privatePanel   = () => document.querySelector(CONFIRM)?.closest('.account__tab--content');
+
+  // "Character Profile Page" row of the summary table reads Private?
+  function alreadyPrivate() {
+    for (const row of document.querySelectorAll('.privacy__table tbody tr')) {
+      const th = row.querySelector('th');
+      if (th && /Character Profile Page/i.test(th.textContent)) {
+        return /Private/i.test(row.querySelector('td')?.textContent || '');
+      }
+    }
+    return false;
+  }
+
+  const isActive = a => {
+    const li = a.closest('li');
+    return li?.classList.contains('selected') || !!li?.querySelector('.icon-btn__check');
+  };
+
+  // ---------- list page ----------
+  async function pickNext() {
+    sessionStorage.removeItem(PICKED);
+    const links = [...document.querySelectorAll(CHARS)];
+    if (!links.length) return stop('no characters in list');
+
+    const selIdx = links.findIndex(isActive);
+
+    // index moved since last time we were here -> real progress
+    if (String(selIdx) !== sessionStorage.getItem(LASTIDX)) {
+      sessionStorage.setItem(LASTIDX, String(selIdx));
+      progress();
+    }
+
+    if (sessionStorage.getItem(CURRENT) && selIdx >= 0) {
+      sessionStorage.removeItem(CURRENT);
+      console.log(`[LS] character ${selIdx + 1}/${links.length} (active) — opening settings`);
+      sessionStorage.setItem(PICKED, '1');
+      return go(SETTINGS_URL);
+    }
+
+    const nextIdx = selIdx + 1;
+    if (nextIdx >= links.length) return stop(`reached the end of the list (${links.length} characters)`);
+
+    console.log(`[LS] selecting character ${nextIdx + 1}/${links.length}`);
+    sessionStorage.setItem(TABTRY, '0');
+    sessionStorage.setItem(PICKED, '1');
+    await sleep(800);
+    links[nextIdx].click();
+
+    try {
+      const yes = await waitFor(() => shown(document.querySelector(YES)), 2000, 'switch dialog');
+      await sleep(200);
+      yes.click();
+    } catch { /* no dialog */ }
+
+    await sleep(2500);
+    if (!isSettingsPage()) go(SETTINGS_URL);
+  }
+
+  // ---------- open the private tab ----------
+  async function openPrivateTab() {
+    await pageReady();
+    await sleep(400);                       // deferred scripts bind their handlers
+
+    for (let i = 1; i <= 3; i++) {
+      const tab = document.querySelector(TAB);
+      if (!tab) throw new Error('private tab missing');
+      tab.click();
+      try {
+        return await waitFor(() => shown(privatePanel()), 3500, 'private panel');
+      } catch {
+        console.log('[LS] tab attempt', i, 'failed, retrying');
+        await sleep(800);
+      }
+    }
+    throw new Error('private panel never appeared');
+  }
+
+  // ---------- settings page ----------
+  async function privatise() {
+    sessionStorage.removeItem(PICKED);
+
+    if (alreadyPrivate()) {
+      console.log('[LS] already private — back to the list');
+      sessionStorage.setItem(TABTRY, '0');
+      progress();
+      return go(SELECT_URL);
+    }
+
+    await openPrivateTab();
+
+    const cb = document.querySelector(CONFIRM);
+    if (!cb.checked) cb.click();
+    await waitFor(() => cb.checked, 2000, 'checkbox');
+
+    document.querySelector(SAVE).click();
+
+    const yes = await waitFor(() => shown(document.querySelector(YES)), 5000, 'confirm dialog');
+    await sleep(300);
+    sessionStorage.setItem(TABTRY, '0');
+    progress();
+    yes.click();
+    console.log('[LS] saved');
+
+    await sleep(3000);
+    go(SELECT_URL);
+  }
+
+  // ---------- failure: reload the real settings URL, then skip the character ----------
+  function fail(e) {
+    const n = (+sessionStorage.getItem(TABTRY) || 0) + 1;
+    sessionStorage.setItem(TABTRY, n);
+
+    if (n <= 3) {
+      console.log(`[LS] ${e.message} — loading settings page again (${n}/3)`);
+      return setTimeout(() => go(SETTINGS_URL), 1000);
+    }
+    console.warn('[LS] giving up on this character, moving to the next');
+    sessionStorage.setItem(TABTRY, '0');
+    setTimeout(() => go(SELECT_URL), 1000);
+  }
+
+  function tick() {
+    if (!sessionStorage.getItem(RUNNING)) return;
+
+    const n = (+sessionStorage.getItem(STEPS) || 0) + 1;
+    sessionStorage.setItem(STEPS, n);
+    if (n > 14) return stop('stuck — no progress over many page loads');
+
+    if (isSettingsPage())        privatise().catch(fail);
+    else if (isListPage())       pickNext().catch(fail);
+    else if (sessionStorage.getItem(PICKED)) go(SETTINGS_URL);   // selection landed elsewhere
+    else                         go(SELECT_URL);
+  }
+
+  function start(includeCurrent) {
+    sessionStorage.setItem(RUNNING, '1');
+    sessionStorage.setItem(STEPS, '0');
+    sessionStorage.setItem(TABTRY, '0');
+    sessionStorage.removeItem(LASTIDX);
+    sessionStorage.removeItem(PICKED);
+    if (includeCurrent) sessionStorage.setItem(CURRENT, '1');
+    else sessionStorage.removeItem(CURRENT);
+    if (isListPage() || isSettingsPage()) tick();
+    else go(SELECT_URL);
+  }
+
+  GM_registerMenuCommand?.('▶ Start (including the current character)', () => start(true));
+  GM_registerMenuCommand?.('▶▶ Start from the next character', () => start(false));
+  GM_registerMenuCommand?.('■ Stop', () => stop('stopped by user'));
+
+  tick();
+  window.addEventListener('pageshow', e => { if (e.persisted) tick(); });
+})();
