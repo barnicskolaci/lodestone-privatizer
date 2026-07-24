@@ -2,14 +2,14 @@
 
 Tampermonkey script to automate making your FFXIV Lodestone character profiles private.
 
-# Usage
+## Usage
 - get tampermonkey addon for browser of choice
 - make a new script, insert file contents
 - log in to lodestone, click start (see pic), profit.
 - make sure no character is selected or the 1st character is selected and start with current character (not next)
 <img width="1105" height="219" alt="image" src="https://github.com/user-attachments/assets/0f9a95eb-a6b0-4b77-92d6-d47444fc8ba5" />
 
-# Additional info
+## Additional info
 
 Works by going through each character in the lodestone character screen.
 - Finds currently selected character and opens the next or 1st if none are selected (✓ icon).
